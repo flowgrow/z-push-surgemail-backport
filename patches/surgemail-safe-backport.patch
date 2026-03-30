@@ -1,0 +1,457 @@
+From aa3d233f60d2292364b904d07ece9c7bc2d81b00 Mon Sep 17 00:00:00 2001
+From: Florian Groh <florian@kniff.at>
+Date: Mon, 30 Mar 2026 16:36:28 +0200
+Subject: [PATCH] IMAP: backport Surgemail safe overview path
+
+
+diff --git a/src/backend/imap/config.php b/src/backend/imap/config.php
+index 336fe66b858805dfb0fff7c0707ed7119003641c..14ec2af3ece7acd773c26b0c165c7a186df7217a 100644
+--- a/src/backend/imap/config.php
++++ b/src/backend/imap/config.php
+@@ -36,6 +36,23 @@ define('IMAP_PORT', 143);
+ // best cross-platform compatibility (see http://php.net/imap_open for options)
+ define('IMAP_OPTIONS', '/notls/norsh');
+ 
++// Enable a lightweight raw-IMAP overview path (UID/FLAGS/INTERNALDATE/RFC822.SIZE only),
++// which can be faster on large folders than imap_fetch_overview().
++if (!defined('IMAP_USE_RAWIMAP_OVERVIEW')) {
++    define('IMAP_USE_RAWIMAP_OVERVIEW', true);
++}
++
++// Optional message size guard rail in MB. Messages larger than this are skipped by
++// the optimized overview list path. Set to 0 to disable.
++if (!defined('MAX_MSG_SIZE')) {
++    define('MAX_MSG_SIZE', 20);
++}
++
++// Optional: use IMAP IDLE on inbox during sink waits. Keep disabled by default.
++if (!defined('IMAP_USE_RAWIMAP_IDLE')) {
++    define('IMAP_USE_RAWIMAP_IDLE', false);
++}
++
+ 
+ // Mark messages as read when moving to Trash.
+ //      BE AWARE that you will lose the unread flag, but some mail clients do this so the Trash folder doesn't get boldened
+diff --git a/src/backend/imap/imap.php b/src/backend/imap/imap.php
+index 85177825d66653ecc8cadac5b3ddcf33c6799f46..5fe6780d74fee213fd4e8452b619f7cadea004b2 100644
+--- a/src/backend/imap/imap.php
++++ b/src/backend/imap/imap.php
+@@ -30,6 +30,7 @@ require_once("backend/imap/config.php");
+ 
+ require_once("backend/imap/mime_calendar.php");
+ require_once("backend/imap/mime_encode.php");
++require_once("backend/imap/rawimap.php");
+ require_once("backend/imap/user_identity.php");
+ 
+ // Add the path for Andrew's Web Libraries to include_path
+@@ -772,6 +773,26 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
+         // Close IMAP connection, we will reconnect in the next execution. This will reduce IMAP pressure
+         $this->close_connection();
+ 
++        if (empty($notifications) && defined('IMAP_USE_RAWIMAP_IDLE') && IMAP_USE_RAWIMAP_IDLE) {
++            $inboxImapId = $this->create_name_folder(IMAP_FOLDER_INBOX);
++            $rawClient = rawimap_open_connection(IMAP_SERVER, IMAP_PORT);
++
++            if ($rawClient && rawimap_login($rawClient, $this->username, $this->password) && rawimap_select($rawClient, $inboxImapId)) {
++                ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendIMAP->ChangesSink(): waiting on IMAP IDLE for '%s'", $inboxImapId));
++                if (rawimap_idle_wait_for_exists($rawClient, $timeout)) {
++                    $notifications[] = $this->getFolderIdFromImapId($inboxImapId);
++                    ZLog::Write(LOGLEVEL_DEBUG, "BackendIMAP->ChangesSink(): IDLE detected inbox update");
++                }
++            }
++            else {
++                ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendIMAP->ChangesSink(): IDLE unavailable, fallback to sleep (%s)", rawimap_get_error()));
++            }
++
++            if ($rawClient) {
++                rawimap_close_connection($rawClient);
++            }
++        }
++
+         // Wait to timeout
+         if (empty($notifications)) {
+             while ($stopat > time()) {
+@@ -1019,13 +1040,15 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
+ 
+         $messages = array();
+         $this->imap_reopen_folder($folderid, true);
++        $maxImapSize = (defined('MAX_MSG_SIZE') && (int) MAX_MSG_SIZE > 0) ? ((int) MAX_MSG_SIZE * 1000000) : 0;
++        $useRawOverview = (defined('IMAP_USE_RAWIMAP_OVERVIEW') && IMAP_USE_RAWIMAP_OVERVIEW);
+ 
+         if ($cutoffdate > 0) {
+             // IMAP SINCE search criteria
+             $searchCriteria = "SINCE ". date("d-M-Y", (int) $cutoffdate);
+ 
+             // search messages in time range
+-            $search = @imap_search($this->mbox, $searchCriteria);
++            $search = @imap_search($this->mbox, $searchCriteria, ($useRawOverview ? SE_UID : 0));
+             if ($search === false) {
+                 ZLog::Write(LOGLEVEL_INFO, sprintf("BackendIMAP->GetMessageList('%s','%s'): 0 result for the search or error: %s", $folderid, $cutoffdate, imap_last_error()));
+                 return $messages;
+@@ -1044,7 +1067,26 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
+         }
+ 
+         ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendIMAP->GetMessageList(): searching with sequence '%s'", $sequence));
+-        $overviews = @imap_fetch_overview($this->mbox, $sequence);
++        $overviews = false;
++        $overviewFlags = ($useRawOverview ? FT_UID : 0);
++
++        if ($useRawOverview) {
++            $rawClient = rawimap_open_connection(IMAP_SERVER, IMAP_PORT);
++            if ($rawClient && rawimap_login($rawClient, $this->username, $this->password) && rawimap_select($rawClient, $folderid)) {
++                $overviews = rawimap_uid_fetch_overview($rawClient, $sequence, $maxImapSize);
++            }
++            else {
++                ZLog::Write(LOGLEVEL_WARN, sprintf("BackendIMAP->GetMessageList('%s','%s'): raw overview unavailable, fallback to php-imap (%s)", $folderid, $cutoffdate, rawimap_get_error()));
++            }
++
++            if ($rawClient) {
++                rawimap_close_connection($rawClient);
++            }
++        }
++
++        if ($overviews === false) {
++            $overviews = @imap_fetch_overview($this->mbox, $sequence, $overviewFlags);
++        }
+ 
+         if (!is_array($overviews) || count($overviews) == 0) {
+             $error = imap_last_error();
+@@ -1068,6 +1110,10 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
+                 continue;
+             }
+ 
++            if ($maxImapSize > 0 && isset($overview->size) && (int) $overview->size > $maxImapSize) {
++                continue;
++            }
++
+             // cut of deleted messages
+             if (isset($overview->deleted) && $overview->deleted)
+                 continue;
+diff --git a/src/backend/imap/rawimap.php b/src/backend/imap/rawimap.php
+new file mode 100644
+index 0000000000000000000000000000000000000000..49de5ebef38fa3849999971ceaca015229379f26
+--- /dev/null
++++ b/src/backend/imap/rawimap.php
+@@ -0,0 +1,301 @@
++<?php
++/**
++ * Lightweight IMAP client for high-volume UID/FLAGS fetches and optional IDLE.
++ * This is intentionally minimal and only implements the commands used by Z-Push.
++ */
++
++$g_rawimap_error = null;
++
++function rawimap_set_error($error) {
++    global $g_rawimap_error;
++    $g_rawimap_error = $error;
++}
++
++function rawimap_get_error() {
++    global $g_rawimap_error;
++    return $g_rawimap_error;
++}
++
++function rawimap_quote($value) {
++    return '"' . str_replace(array("\\", '"'), array("\\\\", '\\"'), (string) $value) . '"';
++}
++
++function rawimap_next_tag($connection) {
++    $tag = sprintf("A%04d", $connection->tagcounter);
++    $connection->tagcounter++;
++    return $tag;
++}
++
++function rawimap_read_line($connection, $timeout = null) {
++    if (!is_object($connection) || !isset($connection->stream) || !is_resource($connection->stream)) {
++        rawimap_set_error("Connection is closed");
++        return false;
++    }
++
++    if ($timeout !== null) {
++        stream_set_timeout($connection->stream, (int) $timeout);
++    }
++
++    $line = fgets($connection->stream);
++    if ($line === false) {
++        $meta = stream_get_meta_data($connection->stream);
++        if (!empty($meta["timed_out"])) {
++            rawimap_set_error("Timed out waiting for IMAP response");
++        }
++        else {
++            rawimap_set_error("Failed to read IMAP response");
++        }
++        return false;
++    }
++
++    return rtrim($line, "\r\n");
++}
++
++function rawimap_read_command_result($connection, $tag, &$infolines = null, $timeout = 30) {
++    $infolines = array();
++
++    while (!feof($connection->stream)) {
++        $line = rawimap_read_line($connection, $timeout);
++        if ($line === false) {
++            return false;
++        }
++
++        if (strpos($line, $tag . " ") === 0) {
++            return $line;
++        }
++
++        $infolines[] = $line;
++    }
++
++    rawimap_set_error("Connection closed before IMAP command completed");
++    return false;
++}
++
++function rawimap_was_ok($resultline) {
++    if (!is_string($resultline) || $resultline === "") {
++        return false;
++    }
++    $parts = explode(" ", $resultline);
++    return (count($parts) >= 2 && strtoupper($parts[1]) === "OK");
++}
++
++function rawimap_send_command($connection, $command, &$infolines = null, $timeout = 30) {
++    $tag = rawimap_next_tag($connection);
++    $line = $tag . " " . $command . "\r\n";
++    if (fwrite($connection->stream, $line) === false) {
++        rawimap_set_error("Failed to send IMAP command");
++        return false;
++    }
++
++    $resultline = rawimap_read_command_result($connection, $tag, $infolines, $timeout);
++    if ($resultline === false) {
++        return false;
++    }
++
++    if (!rawimap_was_ok($resultline)) {
++        rawimap_set_error(sprintf("IMAP command failed: %s", $resultline));
++        return false;
++    }
++
++    rawimap_set_error(null);
++    return $resultline;
++}
++
++function rawimap_open_connection($server, $port, $timeout = 30) {
++    $server = (string) $server;
++    $port = (int) $port;
++
++    $errno = 0;
++    $errstr = "";
++    $stream = @stream_socket_client(sprintf("tcp://%s:%d", $server, $port), $errno, $errstr, (int) $timeout);
++    if ($stream === false) {
++        rawimap_set_error(sprintf("Unable to connect to IMAP server: %s (%d)", $errstr, $errno));
++        return false;
++    }
++
++    stream_set_timeout($stream, (int) $timeout);
++
++    $connection = new stdClass();
++    $connection->stream = $stream;
++    $connection->tagcounter = 1;
++    $connection->timeout = (int) $timeout;
++
++    $greeting = rawimap_read_line($connection, $timeout);
++    if ($greeting === false) {
++        @fclose($stream);
++        return false;
++    }
++
++    if (strpos($greeting, "* OK") !== 0 && strpos($greeting, "* PREAUTH") !== 0) {
++        rawimap_set_error(sprintf("Invalid IMAP greeting: %s", $greeting));
++        @fclose($stream);
++        return false;
++    }
++
++    rawimap_set_error(null);
++    return $connection;
++}
++
++function rawimap_close_connection($connection) {
++    if (is_object($connection) && isset($connection->stream) && is_resource($connection->stream)) {
++        @fclose($connection->stream);
++    }
++}
++
++function rawimap_login($connection, $user, $password) {
++    return (rawimap_send_command($connection, "LOGIN " . rawimap_quote($user) . " " . rawimap_quote($password)) !== false);
++}
++
++function rawimap_select($connection, $mailbox) {
++    $infolines = array();
++    if (rawimap_send_command($connection, "SELECT " . rawimap_quote($mailbox), $infolines) === false) {
++        return false;
++    }
++
++    $result = array("totalcount" => 0, "recentcount" => 0);
++    foreach ($infolines as $line) {
++        if (preg_match('/^\* (\d+) EXISTS$/', $line, $matches)) {
++            $result["totalcount"] = (int) $matches[1];
++        }
++        else if (preg_match('/^\* (\d+) RECENT$/', $line, $matches)) {
++            $result["recentcount"] = (int) $matches[1];
++        }
++    }
++    return $result;
++}
++
++function rawimap_parse_internaldate($internalDate) {
++    $oldTimezone = date_default_timezone_get();
++    date_default_timezone_set("UTC");
++    $parsed = strtotime(preg_replace('/\(.*\)/', "", (string) $internalDate));
++    date_default_timezone_set($oldTimezone);
++    if ($parsed === false || $parsed == -1) {
++        return 0;
++    }
++    return $parsed;
++}
++
++function rawimap_uid_fetch_overview($connection, $uidSet, $maxImapSizeBytes = 0) {
++    $uidSet = trim((string) $uidSet);
++    if ($uidSet === "") {
++        return array();
++    }
++
++    $infolines = array();
++    if (rawimap_send_command($connection, "UID FETCH " . $uidSet . " (UID INTERNALDATE RFC822.SIZE FLAGS)", $infolines, 60) === false) {
++        return false;
++    }
++
++    $result = array();
++    foreach ($infolines as $line) {
++        if (strpos($line, " FETCH ") === false) {
++            continue;
++        }
++
++        $overview = new stdClass();
++        $overview->uid = 0;
++        $overview->udate = 0;
++        $overview->size = 0;
++        $overview->seen = 0;
++        $overview->recent = 0;
++        $overview->deleted = 0;
++        $overview->answered = 0;
++        $overview->flagged = 0;
++
++        if (preg_match('/\bUID\s+(\d+)/', $line, $matches)) {
++            $overview->uid = (int) $matches[1];
++        }
++        if (preg_match('/\bRFC822\.SIZE\s+(\d+)/', $line, $matches)) {
++            $overview->size = (int) $matches[1];
++        }
++        if (preg_match('/\bINTERNALDATE\s+"([^"]+)"/', $line, $matches)) {
++            $overview->udate = rawimap_parse_internaldate($matches[1]);
++        }
++        if (preg_match('/\bFLAGS\s+\(([^)]*)\)/', $line, $matches)) {
++            $flags = strtoupper($matches[1]);
++            $overview->seen = (strpos($flags, "\\SEEN") !== false) ? 1 : 0;
++            $overview->recent = (strpos($flags, "\\RECENT") !== false) ? 1 : 0;
++            $overview->deleted = (strpos($flags, "\\DELETED") !== false) ? 1 : 0;
++            $overview->answered = (strpos($flags, "\\ANSWERED") !== false) ? 1 : 0;
++            $overview->flagged = (strpos($flags, "\\FLAGGED") !== false) ? 1 : 0;
++        }
++
++        if ($overview->uid <= 0) {
++            continue;
++        }
++
++        if ((int) $maxImapSizeBytes > 0 && $overview->size > (int) $maxImapSizeBytes) {
++            continue;
++        }
++
++        $result[] = $overview;
++    }
++
++    return $result;
++}
++
++function rawimap_idle_wait_for_exists($connection, $timeout) {
++    $timeout = max(1, (int) $timeout);
++    $tag = rawimap_next_tag($connection);
++    if (fwrite($connection->stream, $tag . " IDLE\r\n") === false) {
++        rawimap_set_error("Failed to send IDLE command");
++        return false;
++    }
++
++    // Wait for continuation response ("+ idling").
++    while (!feof($connection->stream)) {
++        $line = rawimap_read_line($connection, min(5, $timeout));
++        if ($line === false) {
++            return false;
++        }
++
++        if (strpos($line, "+") === 0) {
++            break;
++        }
++        if (strpos($line, $tag . " ") === 0) {
++            rawimap_set_error(sprintf("IDLE rejected by IMAP server: %s", $line));
++            return false;
++        }
++    }
++
++    $found = false;
++    $deadline = microtime(true) + $timeout;
++    while (microtime(true) < $deadline) {
++        $remaining = $deadline - microtime(true);
++        $seconds = (int) $remaining;
++        $micros = (int) (($remaining - $seconds) * 1000000);
++        $read = array($connection->stream);
++        $write = null;
++        $except = null;
++
++        $ready = @stream_select($read, $write, $except, $seconds, $micros);
++        if ($ready === false || $ready === 0) {
++            break;
++        }
++
++        $line = fgets($connection->stream);
++        if ($line === false) {
++            break;
++        }
++        $line = rtrim($line, "\r\n");
++
++        if (preg_match('/^\* \d+ EXISTS\b/', $line)) {
++            $found = true;
++            break;
++        }
++    }
++
++    @fwrite($connection->stream, "DONE\r\n");
++    $ignored = array();
++    $resultline = rawimap_read_command_result($connection, $tag, $ignored, 10);
++    if ($resultline === false) {
++        // If DONE response is missing we still return whether an EXISTS was seen.
++        return $found;
++    }
++
++    if (!rawimap_was_ok($resultline)) {
++        rawimap_set_error(sprintf("IDLE completion failed: %s", $resultline));
++    }
++
++    return $found;
++}
+diff --git a/src/lib/request/request.php b/src/lib/request/request.php
+index 47327bf2a312072c40137e231079c2af67d0e112..71e89bf04073bee97c1e991e648754787651406e 100644
+--- a/src/lib/request/request.php
++++ b/src/lib/request/request.php
+@@ -206,6 +206,13 @@ class Request {
+             preg_replace_callback('/(\-?\d+)(.?)/',
+                     function ($m) {
+                         self::$memoryLimit = $m[1] * pow(1024, strpos('BKMG', $m[2])) * self::MAXMEMORYUSAGE;
++                        if (defined('MAX_MSG_SIZE') && is_numeric(MAX_MSG_SIZE) && (int) MAX_MSG_SIZE > 0) {
++                            // Reserve headroom so one large message can still be read safely.
++                            self::$memoryLimit -= ((int) MAX_MSG_SIZE * 1000000 * 3);
++                            if (self::$memoryLimit < 0) {
++                                self::$memoryLimit = 0;
++                            }
++                        }
+                     },
+                     strtoupper($memoryLimit));
+         }
+-- 
+2.50.1 (Apple Git-155)
+
