@@ -36,6 +36,23 @@ define('IMAP_PORT', 143);
 // best cross-platform compatibility (see http://php.net/imap_open for options)
 define('IMAP_OPTIONS', '/notls/norsh');
 
+// Enable a lightweight raw-IMAP overview path (UID/FLAGS/INTERNALDATE/RFC822.SIZE only),
+// which can be faster on large folders than imap_fetch_overview().
+if (!defined('IMAP_USE_RAWIMAP_OVERVIEW')) {
+    define('IMAP_USE_RAWIMAP_OVERVIEW', true);
+}
+
+// Optional message size guard rail in MB. Messages larger than this are skipped by
+// the optimized overview list path. Set to 0 to disable.
+if (!defined('MAX_MSG_SIZE')) {
+    define('MAX_MSG_SIZE', 20);
+}
+
+// Optional: use IMAP IDLE on inbox during sink waits. Keep disabled by default.
+if (!defined('IMAP_USE_RAWIMAP_IDLE')) {
+    define('IMAP_USE_RAWIMAP_IDLE', false);
+}
+
 
 // Mark messages as read when moving to Trash.
 //      BE AWARE that you will lose the unread flag, but some mail clients do this so the Trash folder doesn't get boldened

@@ -30,6 +30,7 @@ require_once("backend/imap/config.php");
 
 require_once("backend/imap/mime_calendar.php");
 require_once("backend/imap/mime_encode.php");
+require_once("backend/imap/rawimap.php");
 require_once("backend/imap/user_identity.php");
 
 // Add the path for Andrew's Web Libraries to include_path
@@ -772,6 +773,26 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
         // Close IMAP connection, we will reconnect in the next execution. This will reduce IMAP pressure
         $this->close_connection();
 
+        if (empty($notifications) && defined('IMAP_USE_RAWIMAP_IDLE') && IMAP_USE_RAWIMAP_IDLE) {
+            $inboxImapId = $this->create_name_folder(IMAP_FOLDER_INBOX);
+            $rawClient = rawimap_open_connection(IMAP_SERVER, IMAP_PORT);
+
+            if ($rawClient && rawimap_login($rawClient, $this->username, $this->password) && rawimap_select($rawClient, $inboxImapId)) {
+                ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendIMAP->ChangesSink(): waiting on IMAP IDLE for '%s'", $inboxImapId));
+                if (rawimap_idle_wait_for_exists($rawClient, $timeout)) {
+                    $notifications[] = $this->getFolderIdFromImapId($inboxImapId);
+                    ZLog::Write(LOGLEVEL_DEBUG, "BackendIMAP->ChangesSink(): IDLE detected inbox update");
+                }
+            }
+            else {
+                ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendIMAP->ChangesSink(): IDLE unavailable, fallback to sleep (%s)", rawimap_get_error()));
+            }
+
+            if ($rawClient) {
+                rawimap_close_connection($rawClient);
+            }
+        }
+
         // Wait to timeout
         if (empty($notifications)) {
             while ($stopat > time()) {
@@ -1019,13 +1040,15 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
 
         $messages = array();
         $this->imap_reopen_folder($folderid, true);
+        $maxImapSize = (defined('MAX_MSG_SIZE') && (int) MAX_MSG_SIZE > 0) ? ((int) MAX_MSG_SIZE * 1000000) : 0;
+        $useRawOverview = (defined('IMAP_USE_RAWIMAP_OVERVIEW') && IMAP_USE_RAWIMAP_OVERVIEW);
 
         if ($cutoffdate > 0) {
             // IMAP SINCE search criteria
             $searchCriteria = "SINCE ". date("d-M-Y", (int) $cutoffdate);
 
             // search messages in time range
-            $search = @imap_search($this->mbox, $searchCriteria);
+            $search = @imap_search($this->mbox, $searchCriteria, ($useRawOverview ? SE_UID : 0));
             if ($search === false) {
                 ZLog::Write(LOGLEVEL_INFO, sprintf("BackendIMAP->GetMessageList('%s','%s'): 0 result for the search or error: %s", $folderid, $cutoffdate, imap_last_error()));
                 return $messages;
@@ -1044,7 +1067,26 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
         }
 
         ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendIMAP->GetMessageList(): searching with sequence '%s'", $sequence));
-        $overviews = @imap_fetch_overview($this->mbox, $sequence);
+        $overviews = false;
+        $overviewFlags = ($useRawOverview ? FT_UID : 0);
+
+        if ($useRawOverview) {
+            $rawClient = rawimap_open_connection(IMAP_SERVER, IMAP_PORT);
+            if ($rawClient && rawimap_login($rawClient, $this->username, $this->password) && rawimap_select($rawClient, $folderid)) {
+                $overviews = rawimap_uid_fetch_overview($rawClient, $sequence, $maxImapSize);
+            }
+            else {
+                ZLog::Write(LOGLEVEL_WARN, sprintf("BackendIMAP->GetMessageList('%s','%s'): raw overview unavailable, fallback to php-imap (%s)", $folderid, $cutoffdate, rawimap_get_error()));
+            }
+
+            if ($rawClient) {
+                rawimap_close_connection($rawClient);
+            }
+        }
+
+        if ($overviews === false) {
+            $overviews = @imap_fetch_overview($this->mbox, $sequence, $overviewFlags);
+        }
 
         if (!is_array($overviews) || count($overviews) == 0) {
             $error = imap_last_error();
@@ -1065,6 +1107,10 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
             }
             if ($date < $cutoffdate) {
                 // Message is out of range; ignore it
+                continue;
+            }
+
+            if ($maxImapSize > 0 && isset($overview->size) && (int) $overview->size > $maxImapSize) {
                 continue;
             }
 

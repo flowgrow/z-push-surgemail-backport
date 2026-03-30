@@ -206,6 +206,13 @@ class Request {
             preg_replace_callback('/(\-?\d+)(.?)/',
                     function ($m) {
                         self::$memoryLimit = $m[1] * pow(1024, strpos('BKMG', $m[2])) * self::MAXMEMORYUSAGE;
+                        if (defined('MAX_MSG_SIZE') && is_numeric(MAX_MSG_SIZE) && (int) MAX_MSG_SIZE > 0) {
+                            // Reserve headroom so one large message can still be read safely.
+                            self::$memoryLimit -= ((int) MAX_MSG_SIZE * 1000000 * 3);
+                            if (self::$memoryLimit < 0) {
+                                self::$memoryLimit = 0;
+                            }
+                        }
                     },
                     strtoupper($memoryLimit));
         }
