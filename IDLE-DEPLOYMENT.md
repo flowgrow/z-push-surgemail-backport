@@ -45,6 +45,13 @@ Enter the full Purelymail email address and choose Configure Manually.
 Use `zpush.kniff.at` as Server, leave Domain blank, and use the full mailbox
 login as Username with its Purelymail password. Enable Mail only. Enable Push
 under Fetch New Data and enable notifications for this account.
+Start with a limited Mail Days to Sync window (for example, one week); an
+initial unlimited sync needs to enumerate the entire inbox and takes longer.
+
+Production validation passed TLS IMAP login and IDLE, ActiveSync provisioning,
+folder discovery, recent-message synchronization, and a complete quiet Ping
+heartbeat with the live server logging its IDLE subscription. Actual arrival
+latency and sending still need to be confirmed from the iPhone.
 
 Once receiving, sending, and read-state synchronization work, disable Mail on
 the old IMAP account to avoid duplicate inboxes. Keep the original account until
