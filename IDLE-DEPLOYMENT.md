@@ -35,6 +35,8 @@ The old service configuration remains available for rollback.
 
 The GitHub push webhook is configured for this repository, and Coolify tracks
 `imap-idle`. Builds run tests before starting the replacement container.
+The active Coolify application is named **Z-Push IDLE**. The previous service
+must remain stopped because both configurations refer to the same sync state.
 
 ## iPhone
 
