@@ -186,6 +186,21 @@ class Request {
             self::$authPassword = (isset($_SERVER['PHP_AUTH_PW']))?$_SERVER['PHP_AUTH_PW'] : "";
         }
 
+        $defaultLoginDomain = getenv('ZPUSH_DEFAULT_LOGIN_DOMAIN');
+        if ($defaultLoginDomain !== false) {
+            $defaultLoginDomain = ltrim(trim($defaultLoginDomain), '@');
+            if ($defaultLoginDomain !== '') {
+                if (isset(self::$getUser) && strpos(self::$getUser, '@') === false && strpos(self::$getUser, '\\') === false) {
+                    self::$getUser .= '@' . $defaultLoginDomain;
+                }
+
+                if (isset(self::$authUserString) && strpos(self::$authUserString, '@') === false && strpos(self::$authUserString, '\\') === false) {
+                    self::$authUserString .= '@' . $defaultLoginDomain;
+                    self::$authDomain = '';
+                }
+            }
+        }
+
         // process impersonation
         self::$authUser = self::$authUserString; // auth will fail when impersonating & KOE_CAPABILITY_IMPERSONATE is disabled
 

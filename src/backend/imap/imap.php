@@ -27,6 +27,7 @@
 
 // config file
 require_once("backend/imap/config.php");
+require_once("backend/imap/idle.php");
 
 require_once("backend/imap/mime_calendar.php");
 require_once("backend/imap/mime_encode.php");
@@ -39,6 +40,9 @@ require_once("backend/imap/user_identity.php");
 set_include_path(get_include_path() . PATH_SEPARATOR . '/usr/share/awl/inc' . PATH_SEPARATOR . dirname(__FILE__) . '/');
 
 class BackendIMAP extends BackendDiff implements ISearchProvider {
+    private $idlePool;
+    private $idleFolders = [];
+    private $idleRetryAt = 0;
     private $wasteID;
     private $sentID;
     private $server;
@@ -150,6 +154,8 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
      * @return boolean
      */
     public function Logoff() {
+        if ($this->idlePool) $this->idlePool->close();
+        $this->idlePool = null;
         $this->close_connection();
         $this->SaveStorages();
     }
@@ -707,6 +713,53 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
      * @return array
      */
     public function ChangesSink($timeout = 30) {
+        $deadline = microtime(true) + max(0, $timeout);
+        $folders = array_values(array_unique($this->sinkfolders));
+        // This extension handles implicit TLS only; unsupported configurations
+        // and folder sets keep upstream polling behavior.
+        if (getenv('IMAP_IDLE_ENABLED') === 'false' || !$folders || count($folders) > 8 ||
+            strpos(IMAP_OPTIONS, '/ssl') === false || microtime(true) < $this->idleRetryAt)
+            return $this->PollingChangesSink($timeout);
+        try {
+            if ($this->idlePool && ($folders !== $this->idleFolders || $this->idlePool->expired())) {
+                $this->idlePool->close();
+                $this->idlePool = null;
+            }
+            if (!$this->idlePool) {
+                // Subscribe BEFORE taking the normal status snapshot so arrivals
+                // during that snapshot remain buffered on the IDLE connection.
+                $this->idlePool = new ZPushIdlePool(IMAP_SERVER, IMAP_PORT, $this->username,
+                    $this->password, $folders, min($deadline, microtime(true) + 10));
+                $this->idleFolders = $folders;
+                ZLog::Write(LOGLEVEL_INFO, 'IMAP IDLE connected: ' . count($folders) . ' folder(s)');
+            }
+        } catch (Throwable $e) {
+            $this->idleFallback();
+            return $this->PollingChangesSink(max(0, $deadline - microtime(true)));
+        }
+        // Preserve upstream hierarchy and flag reconciliation on each interval.
+        // Its StatusException must propagate to the ActiveSync engine.
+        $notifications = $this->PollingChangesSink(0);
+        if ($notifications) return $notifications;
+        try {
+            $changed = $this->idlePool->wait(max(0, $deadline - microtime(true)));
+            foreach ($changed as $folder) $notifications[] = $this->getFolderIdFromImapId($folder);
+            if ($notifications) ZLog::Write(LOGLEVEL_INFO, 'IMAP IDLE woke ActiveSync: ' . count($notifications) . ' folder(s)');
+            return $notifications;
+        } catch (Throwable $e) {
+            $this->idleFallback();
+            return $this->PollingChangesSink(max(0, $deadline - microtime(true)));
+        }
+    }
+
+    private function idleFallback() {
+        if ($this->idlePool) $this->idlePool->close();
+        $this->idlePool = null;
+        $this->idleRetryAt = microtime(true) + 60;
+        ZLog::Write(LOGLEVEL_WARN, 'IMAP IDLE unavailable; using polling and retrying later');
+    }
+
+    private function PollingChangesSink($timeout = 30) {
         $notifications = array();
         $stopat = time() + $timeout - 1;
 
@@ -772,26 +825,6 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
         }
         // Close IMAP connection, we will reconnect in the next execution. This will reduce IMAP pressure
         $this->close_connection();
-
-        if (empty($notifications) && defined('IMAP_USE_RAWIMAP_IDLE') && IMAP_USE_RAWIMAP_IDLE) {
-            $inboxImapId = $this->create_name_folder(IMAP_FOLDER_INBOX);
-            $rawClient = rawimap_open_connection(IMAP_SERVER, IMAP_PORT);
-
-            if ($rawClient && rawimap_login($rawClient, $this->username, $this->password) && rawimap_select($rawClient, $inboxImapId)) {
-                ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendIMAP->ChangesSink(): waiting on IMAP IDLE for '%s'", $inboxImapId));
-                if (rawimap_idle_wait_for_exists($rawClient, $timeout)) {
-                    $notifications[] = $this->getFolderIdFromImapId($inboxImapId);
-                    ZLog::Write(LOGLEVEL_DEBUG, "BackendIMAP->ChangesSink(): IDLE detected inbox update");
-                }
-            }
-            else {
-                ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendIMAP->ChangesSink(): IDLE unavailable, fallback to sleep (%s)", rawimap_get_error()));
-            }
-
-            if ($rawClient) {
-                rawimap_close_connection($rawClient);
-            }
-        }
 
         // Wait to timeout
         if (empty($notifications)) {

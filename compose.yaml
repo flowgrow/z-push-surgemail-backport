@@ -1,0 +1,52 @@
+{
+  "services": {
+    "zpush": {
+      "restart": "unless-stopped",
+      "environment": {
+        "BACKEND_PROVIDER": "BackendIMAP",
+        "FULLEMAIL": "true",
+        "IMAP_FOLDER_ARCHIVE": "'Archive'",
+        "IMAP_FOLDER_DRAFTS": "'Drafts'",
+        "IMAP_FOLDER_INBOX": "'Inbox'",
+        "IMAP_FOLDER_SENT": "'Sent'",
+        "IMAP_FOLDER_SPAM": "'Junk'",
+        "IMAP_FOLDER_TRASH": "'Trash'",
+        "IMAP_PORT": "993",
+        "IMAP_SERVER_METHOD": "smtp",
+        "IMAP_SERVER": "mailserver.purelymail.com",
+        "LOGAUTHFAIL": "true",
+        "LOGLEVEL": "INFO",
+        "PHP_MAX_EXECUTION_TIME": "3660",
+        "PHP_MEMORY": "256",
+        "PING_HIGHER_BOUND_LIFETIME": "300",
+        "PING_INTERVAL": "30",
+        "PING_LOWER_BOUND_LIFETIME": "false",
+        "RETRY_AFTER_DELAY": "300",
+        "SMTP_PORT": "587",
+        "TIMEZONE": "'Europe/Vienna'",
+        "TZ": "Europe/Vienna",
+        "ZPUSH_HOST": "zpush.kniff.at",
+        "ZPUSH_DEFAULT_LOGIN_DOMAIN": "kniff.at",
+        "IMAP_IDLE_ENABLED": "true"
+      },
+      "volumes": [
+        "zpush-data:/var/lib/z-push",
+        "zpush-logs:/var/log/z-push"
+      ],
+      "build": ".",
+      "expose": [
+        "8080"
+      ]
+    }
+  },
+  "volumes": {
+    "zpush-data": {
+      "external": true,
+      "name": "c4os00sc8go8kogkskocwsks_zpush-data"
+    },
+    "zpush-logs": {
+      "external": true,
+      "name": "c4os00sc8go8kogkskocwsks_zpush-logs"
+    }
+  }
+}
