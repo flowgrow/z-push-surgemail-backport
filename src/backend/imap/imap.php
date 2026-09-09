@@ -2850,17 +2850,31 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
      * @return void
      */
     private function settingsOOF(&$oof) {
-        //if oof state is set it must be set of oof and get otherwise
-        if (!isset($oof->oofstate)) {
-            $oof->oofstate = SYNC_SETTINGSOOF_DISABLED;
-            $oof->Status = SYNC_SETTINGSSTATUS_SUCCESS;
-
-            //unset body type for oof in order not to stream it
-            unset($oof->bodytype);
-            return true;
+        if (!defined('IMAP_SIEVE_ENABLED') || !IMAP_SIEVE_ENABLED) {
+            if (!isset($oof->oofstate)) {
+                $oof->oofstate = SYNC_SETTINGSOOF_DISABLED;
+                $oof->Status = SYNC_SETTINGSSTATUS_SUCCESS;
+                unset($oof->bodytype);
+            } else $oof->Status = SYNC_SETTINGSSTATUS_PROTOCOLLERROR;
+            return;
         }
-        else {
-            return false;
+        require_once __DIR__ . '/oof.php';
+        $lock = false;
+        try {
+            // Serialize iPhone/iPad settings updates on this Z-Push instance.
+            $lock = fopen(STATE_DIR . 'oof-' . hash('sha256', $this->username) . '.lock', 'c');
+            if (!$lock || !flock($lock, LOCK_EX)) throw new RuntimeException('OOF lock unavailable');
+            $client = new ZPushManageSieve(IMAP_SIEVE_SERVER, IMAP_SIEVE_PORT, $this->username, $this->password, IMAP_SIEVE_PRE_TLS_CAPABILITIES);
+            $service = new ZPushSieveOOF($client, $this->GetUserDetails($this->username)['emailaddress']);
+            $service->settings($oof);
+        } catch (InvalidArgumentException $e) {
+            $oof->Status = 3; // Invalid arguments; never silently broaden the reply audience.
+            ZLog::Write(LOGLEVEL_WARN, 'OOF: ' . $e->getMessage());
+        } catch (Throwable $e) {
+            $oof->Status = 4; // Server unavailable. No credentials or server response in logs.
+            ZLog::Write(LOGLEVEL_ERROR, 'OOF: unable to read or update Sieve settings');
+        } finally {
+            if (is_resource($lock)) { flock($lock, LOCK_UN); fclose($lock); }
         }
     }
 

@@ -21,6 +21,8 @@ RUN cp /opt/z-push/nginx.conf /etc/nginx/nginx.conf \
     && php /opt/z-push-tests/idle/idle.php \
     && php /opt/z-push-tests/security/dav.php \
     && php /opt/z-push-tests/security/combined.php \
+    && php /opt/z-push-tests/oof/oof.php \
+    && php /opt/z-push-tests/oof/tls.php \
     && php -r 'require "vendor/autoload.php"; require "config.php"; ZPush::CheckConfig(); ZPush::GetBackend(); class_exists("CalDAVClient");'  \
     && chown -R nginx:nginx /run/nginx /var/lib/nginx /var/log/nginx /var/lib/z-push /var/log/z-push
 USER nginx

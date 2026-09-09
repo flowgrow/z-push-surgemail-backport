@@ -95,3 +95,43 @@ mandatory-TLS SMTP authentication, and DAV ↔ ActiveSync contact/calendar
 read, update, creation and deletion tests. Temporary fixtures were cleaned up.
 The current Trivy database reported zero runtime package vulnerability matches.
 This is a package scan, not a guarantee of application security.
+
+## iPhone automatic replies
+
+The combined backend now routes ActiveSync `Settings/Oof` to IMAP's ManageSieve
+integration. The deployed image enables `IMAP_SIEVE_ENABLED`, connects to
+`mailserver.purelymail.com:4190` with verified STARTTLS, and reuses the authenticated
+mail credentials in memory. No password or reply worker is stored on the server.
+Purelymail executes the vacation filter on incoming mail, including while the phone
+is offline. The integration supports on/off, UTC start/end schedules, reply text,
+and separate internal (same email domain) / external messages. HTML input is
+converted to plain text. Replies are limited to one per sender per seven days by
+Sieve, with suppression of mailing lists, automated messages and flagged spam.
+
+In iOS, open Settings → Apps → Mail → Mail Accounts → your Exchange account →
+Automatic Reply. For external replies choose all senders. Contacts-only (or distinct
+known/unknown external messages) is rejected because this backend does not resolve
+Sieve senders against the address book. Unknown-only replies are also rejected.
+
+The existing active script is retained byte-for-byte inside a marked wrapper; the
+OOF action follows existing filters, so an earlier `stop` also stops the reply.
+Inactive scripts are preserved. Disabling retains the message for later reuse.
+An existing separate vacation filter prevents enabling this feature until that
+filter is removed in webmail. Manage the marked section through iOS: manual edits
+to it are detected and rejected. Replacing the script through webmail removes the
+iOS-managed reply. Avoid editing filters in webmail simultaneously with an iOS
+settings update: ManageSieve has no atomic compare-and-swap operation.
+
+`IMAP_SIEVE_PRE_TLS_CAPABILITIES` is enabled for Purelymail, whose server emits a
+second capability response before the TLS handshake. That response is drained and
+discarded; capabilities are then requested again inside verified TLS. This keeps
+plaintext data from being mistaken for an authentication or script result.
+Generic backend defaults leave both Sieve and this compatibility option off.
+Each update is read back before returning success.
+
+Tests: the image build runs `tests/oof/oof.php` for schedules, audience validation,
+text escaping, filter preservation, upload failure, protocol parsing and disabling.
+`python3 tests/integration/oof_roundtrip.py http://127.0.0.1:18081 zpush-oof-check`
+uses ignored `.env.test` credentials with a running test image. It installs only a
+future-dated schedule (2030), exercises ActiveSync set/get/disable, and restores the
+original Sieve scripts and activation in `finally`. It never sends a test email.

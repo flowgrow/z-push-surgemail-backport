@@ -101,6 +101,15 @@ class BackendCombined extends Backend implements ISearchProvider {
         return true;
     }
 
+    /** Route account-level automatic replies to the configured mail backend. */
+    public function Settings($settings) {
+        if ($settings instanceof SyncOOF) {
+            $id = $this->config['folderbackend'][SYNC_FOLDER_TYPE_INBOX] ?? null;
+            if ($id !== null && isset($this->backends[$id])) return $this->backends[$id]->Settings($settings);
+        }
+        return parent::Settings($settings);
+    }
+
     /**
      * Setup the backend to work on a specific store or checks ACLs there.
      * If only the $store is submitted, all Import/Export/Fetch/Etc operations should be

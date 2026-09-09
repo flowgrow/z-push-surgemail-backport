@@ -17,7 +17,7 @@ config('backend/imap/config.php', ['IMAP_SERVER'=>'mailserver.purelymail.com', '
     'IMAP_OPTIONS'=>'/ssl/norsh', 'IMAP_USE_RAWIMAP_OVERVIEW'=>false, 'IMAP_FOLDER_CONFIGURED'=>true,
     'IMAP_FOLDER_INBOX'=>'INBOX', 'IMAP_FOLDER_SENT'=>'Sent', 'IMAP_FOLDER_DRAFT'=>'Drafts',
     'IMAP_FOLDER_TRASH'=>'Trash', 'IMAP_FOLDER_SPAM'=>'Junk', 'IMAP_FOLDER_ARCHIVE'=>'Archive',
-    'IMAP_SMTP_METHOD'=>'smtp']);
+    'IMAP_SMTP_METHOD'=>'smtp', 'IMAP_SIEVE_ENABLED'=>true, 'IMAP_SIEVE_PRE_TLS_CAPABILITIES'=>true]);
 file_put_contents('backend/imap/config.php', "\n\$imap_smtp_params = ['host'=>'ssl://mailserver.purelymail.com','port'=>465,'auth'=>true,'username'=>'imap_username','password'=>'imap_password'];\n", FILE_APPEND);
 file_put_contents('autodiscover/config.php', "\ndefine('ZPUSH_HOST', 'zpush.kniff.at');\n", FILE_APPEND);
 config('backend/caldav/config.php', ['CALDAV_SERVER'=>'purelymail.com', 'CALDAV_PATH'=>'/.well-known/caldav', 'CALDAV_SUPPORTS_SYNC'=>false, 'CALDAV_PERSONAL'=>'default', 'CALDAV_SERVER_TIME_RANGE'=>false]);

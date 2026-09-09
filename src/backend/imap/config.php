@@ -234,3 +234,11 @@ define('IMAP_MEETING_USE_CALDAV', false);
 
 // Specify Which Charset the IMAP Search is going to use, Default is 'UTF-8' but you could use 'US-ASCII'
 define('IMAP_SEARCH_CHARSET', 'UTF-8');
+
+// Optional ActiveSync automatic replies via verified ManageSieve STARTTLS.
+define('IMAP_SIEVE_ENABLED', false);
+define('IMAP_SIEVE_SERVER', 'mailserver.purelymail.com');
+define('IMAP_SIEVE_PORT', 4190);
+
+// Purelymail emits a second capability response before the TLS handshake.
+define('IMAP_SIEVE_PRE_TLS_CAPABILITIES', false);
