@@ -23,6 +23,7 @@ RUN cp /opt/z-push/nginx.conf /etc/nginx/nginx.conf \
     && php /opt/z-push-tests/security/combined.php \
     && php /opt/z-push-tests/security/smtp.php \
     && php /opt/z-push-tests/calendar/bridge.php \
+    && php /opt/z-push-tests/calendar/partial.php \
     && php /opt/z-push-tests/oof/oof.php \
     && php /opt/z-push-tests/oof/tls.php \
     && php -r 'require "vendor/autoload.php"; require "config.php"; ZPush::CheckConfig(); ZPush::GetBackend(); class_exists("CalDAVClient");'  \

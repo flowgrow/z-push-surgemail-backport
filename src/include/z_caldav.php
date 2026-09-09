@@ -946,6 +946,15 @@ EOFILTER;
 	 *
 	 * @return array An array of the relative URL, etag, and calendar data returned from DoCalendarQuery() @see DoCalendarQuery()
 	 */
+    /** Retrieve a resource by its server-provided filename, which need not equal its UID. */
+    function GetResource($href) {
+        $this->DoGETRequest($href);
+        if ($this->httpResponseCode === 404) return null;
+        if ($this->httpResponseCode !== 200 || !preg_match('/^ETag:\s*"([^"\r\n]+)"/mi', $this->httpResponseHeaders, $m))
+            throw new RuntimeException('CalDAV resource lookup failed');
+        return ['href'=>basename(rawurldecode($href)), 'etag'=>$m[1], 'data'=>$this->httpResponseBody];
+    }
+
 	function GetEntryByUid( $uid, $relative_url = null, $component_type = 'VEVENT' ) {
 		$filter = "";
 		if ( $uid ) {

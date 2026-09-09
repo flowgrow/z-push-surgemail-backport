@@ -243,10 +243,14 @@ class BackendCalDAV extends BackendDiff {
      * Get a SyncObject by its ID
      * @see BackendDiff::GetMessage()
      */
+    protected function SubmitCalendarResponse(array $data) {
+        return ZPushCalendarBridge::request($data);
+    }
+
     public function MeetingResponse($requestid, $folderid, $response) {
         if (!ZPushCalendarBridge::enabled()) return parent::MeetingResponse($requestid, $folderid, $response);
         if ($folderid !== 'Cpersonal') throw new RuntimeException('Unsupported meeting calendar');
-        $result = ZPushCalendarBridge::request(['object'=>$requestid,'status'=>ZPushCalendarBridge::response($response)]);
+        $result = $this->SubmitCalendarResponse(['object'=>$requestid,'status'=>ZPushCalendarBridge::response($response)]);
         return $result['id'];
     }
 
@@ -287,13 +291,9 @@ class BackendCalDAV extends BackendDiff {
         }
         else {
             $path = $this->_caldav_path . substr($folderid, 1) . "/";
-            ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendCalDAV->StatMessage Data doesn't exist for this item, querying caldav server for uid '%s' in folder '%s'", substr($id, 0, strlen($id)-4), $path));
-            $e = $this->_caldav->GetEntryByUid(substr($id, 0, strlen($id)-4), $path, $type);
-            if ($e == null && count($e) <= 0) {
-                ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendCalDAV->StatMessage No item on server with uid '%s' in folder '%s'", substr($id, 0, strlen($id)-4), $path));
-                return;
-            }
-            $data = $e[0];
+            $data = $this->_caldav->GetResource($path . $id);
+            if (!$data) return false;
+            $this->_collection[$id] = $data;
         }
         $message = array();
         $message['id'] = $data['href'];
@@ -312,6 +312,20 @@ class BackendCalDAV extends BackendDiff {
         if ($id) {
             $mod = $this->StatMessage($folderid, $id);
             $etag = $mod['mod'];
+            if (ZPushCalendarBridge::enabled() && $folderid === 'Cpersonal') {
+                $status = $message->responsetype ?? null;
+                foreach ($message->attendees ?? [] as $attendee) {
+                    if (strcasecmp($attendee->email ?? '', Request::GetAuthUser()) === 0)
+                        $status = $attendee->attendeestatus ?? $status;
+                }
+                if (in_array((string)$status, ['2','3','4'], true) && empty($message->organizeremail)) {
+                    // iOS also submits an RSVP as a partial Sync appointment change.
+                    // Preserve the stored organizer, UID and event fields.
+                    $this->SubmitCalendarResponse(['object'=>$id,'status'=>['2'=>'TENTATIVE','3'=>'ACCEPTED','4'=>'DECLINED'][(string)$status]]);
+                    unset($this->_collection[$id]);
+                    return $this->StatMessage($folderid, $id);
+                }
+            }
         }
         else {
             $etag = "*";
@@ -320,7 +334,13 @@ class BackendCalDAV extends BackendDiff {
 
         $url = $this->_caldav_path . substr($folderid, 1) . "/" . $id;
 
-        $data = $this->_ParseASToVCalendar($message, $folderid, substr($id, 0, strlen($id) - 4));
+        $uid = substr($id, 0, strlen($id) - 4);
+        if (!empty($this->_collection[$id]['data'])) {
+            $existing = new iCalComponent($this->_collection[$id]['data']);
+            $events = $existing->GetComponents('VEVENT');
+            if ($events) $uid = $events[0]->GetPValue('UID');
+        }
+        $data = $this->_ParseASToVCalendar($message, $folderid, $uid);
 
         $etag_new = $this->CreateUpdateCalendar($data, $url, $etag);
 
@@ -828,6 +848,11 @@ class BackendCalDAV extends BackendDiff {
                                     $attendee->attendeestatus = "5";
                                     break;
                             }
+                        }
+
+                        if (strcasecmp($attendeeEMail, $userDetails['emailaddress']) === 0) {
+                            $message->responsetype = $attendee->attendeestatus ?? '5';
+                            $message->responserequested = strtoupper((string)$property->GetParameterValue('RSVP')) === 'TRUE' ? '1' : '0';
                         }
 
                         // attendeetype: 1 = required, 2 = optional, 3 = resource
