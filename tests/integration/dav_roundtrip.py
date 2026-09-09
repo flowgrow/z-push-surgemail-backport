@@ -34,7 +34,7 @@ def sync(folder,key,commands=None):
  assert val(b,0,14)=='1',('Sync status',val(b,0,14))
  return val(b,0,11),b
 now=datetime.datetime.now(datetime.timezone.utc);fmt=lambda d:d.strftime('%Y%m%dT%H%M%SZ')
-fixtures=[('9','carddav/default/'+marker+'.vcf',('BEGIN:VCARD\r\nVERSION:3.0\r\nUID:'+marker+'\r\nFN:'+marker+'\r\nN:Test;'+marker+';;;\r\nEND:VCARD\r\n').encode(),'text/vcard'),('8','caldav/default/'+marker+'.ics',('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Codex//Sync test//EN\r\nBEGIN:VEVENT\r\nUID:'+marker+'\r\nDTSTAMP:'+fmt(now)+'\r\nDTSTART:'+fmt(now+datetime.timedelta(hours=1))+'\r\nDTEND:'+fmt(now+datetime.timedelta(hours=2))+'\r\nSUMMARY:'+marker+'\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n').encode(),'text/calendar')]
+fixtures=[('9','carddav/default/'+marker+'.vcf',('BEGIN:VCARD\r\nVERSION:3.0\r\nUID:'+marker+'\r\nFN:'+marker+'\r\nN:Test;'+marker+';;;\r\nEND:VCARD\r\n').encode(),'text/vcard'),('8','caldav/2068226B-30F7-4618-A7FD-045AD11A26FD/'+marker+'.ics',('BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Codex//Sync test//EN\r\nBEGIN:VEVENT\r\nUID:'+marker+'\r\nDTSTAMP:'+fmt(now)+'\r\nDTSTART:'+fmt(now+datetime.timedelta(hours=1))+'\r\nDTEND:'+fmt(now+datetime.timedelta(hours=2))+'\r\nSUMMARY:'+marker+'\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n').encode(),'text/calendar')]
 created=[]
 try:
  for typ,path,body,ctype in fixtures:
@@ -59,7 +59,7 @@ try:
   replies=find(b,0,6);newid=val(replies,0,13);assert newid,('Add missing ID',typ,find(b,0,14))
   import re
   assert re.fullmatch(r'[A-Za-z0-9_.-]+',newid), 'Unexpected new item ID'
-  newpath='carddav/default/'+newid.split('-',1)[1]+'.vcf' if typ=='9' else 'caldav/default/'+newid
+  newpath='carddav/default/'+newid.split('-',1)[1]+'.vcf' if typ=='9' else 'caldav/2068226B-30F7-4618-A7FD-045AD11A26FD/'+newid
   created.append(newpath)
   status,data=dav('GET',newpath);data=data.replace(b'\r\n',b'\n').replace(b'\n\t',b'').replace(b'\n ',b'')
   assert status==200 and marker.encode() in data,('Created item absent',typ)

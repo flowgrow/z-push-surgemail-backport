@@ -135,3 +135,10 @@ text escaping, filter preservation, upload failure, protocol parsing and disabli
 uses ignored `.env.test` credentials with a running test image. It installs only a
 future-dated schedule (2030), exercises ActiveSync set/get/disable, and restores the
 original Sieve scripts and activation in `finally`. It never sends a test email.
+
+## Primary calendar
+
+The Purelymail calendar named `Kalender` (collection
+`2068226B-30F7-4618-A7FD-045AD11A26FD`) is configured as `CALDAV_PERSONAL`.
+It is the default calendar for ActiveSync and meeting responses. The unused, empty
+`default` calendar collection was removed at the account owner’s request.
