@@ -140,5 +140,6 @@ original Sieve scripts and activation in `finally`. It never sends a test email.
 
 The Purelymail calendar named `Kalender` (collection
 `2068226B-30F7-4618-A7FD-045AD11A26FD`) is configured as `CALDAV_PERSONAL`.
-It is the default calendar for ActiveSync and meeting responses. The unused, empty
-`default` calendar collection was removed at the account owner’s request.
+It is the default calendar for ActiveSync and meeting responses. Purelymail recreates its empty
+`default` collection after deletion, so `CALDAV_EXCLUDED_CALENDARS` excludes that
+collection from ActiveSync discovery. `Kalender` remains available on all clients.

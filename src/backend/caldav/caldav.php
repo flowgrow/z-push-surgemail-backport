@@ -134,6 +134,9 @@ class BackendCalDAV extends BackendDiff {
             $fpath = explode("/", $val->url, -1);
             if (is_array($fpath)) {
                 $folderid = array_pop($fpath);
+                if (defined('CALDAV_EXCLUDED_CALENDARS') && in_array($folderid, CALDAV_EXCLUDED_CALENDARS, true)) {
+                    continue;
+                }
                 $id = "C" . $folderid;
                 $folders[] = $this->StatFolder($id);
                 $id = "T" . $folderid;

@@ -57,3 +57,6 @@ define('CALDAV_MAX_SYNC_PERIOD', 2147483647);
 
 // Disable only for providers whose calendar-query time-range filter is broken.
 define('CALDAV_SERVER_TIME_RANGE', true);
+
+// Collection IDs omitted from ActiveSync discovery.
+define('CALDAV_EXCLUDED_CALENDARS', []);
