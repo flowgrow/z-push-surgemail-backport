@@ -18,7 +18,8 @@ config('backend/imap/config.php', ['IMAP_SERVER'=>'mailserver.purelymail.com', '
     'IMAP_FOLDER_INBOX'=>'INBOX', 'IMAP_FOLDER_SENT'=>'Sent', 'IMAP_FOLDER_DRAFT'=>'Drafts',
     'IMAP_FOLDER_TRASH'=>'Trash', 'IMAP_FOLDER_SPAM'=>'Junk', 'IMAP_FOLDER_ARCHIVE'=>'Archive',
     'IMAP_SMTP_METHOD'=>'smtp', 'IMAP_SIEVE_ENABLED'=>true, 'IMAP_SIEVE_PRE_TLS_CAPABILITIES'=>true]);
-file_put_contents('backend/imap/config.php', "\n\$imap_smtp_params = ['host'=>'ssl://mailserver.purelymail.com','port'=>465,'auth'=>true,'username'=>'imap_username','password'=>'imap_password'];\n", FILE_APPEND);
+file_put_contents('backend/imap/config.php', "\n\$imap_smtp_params = ['host'=>'smtp.purelymail.com','port'=>587,'auth'=>true,'username'=>'imap_username','password'=>'imap_password'];\n", FILE_APPEND);
+file_put_contents('backend/imap/config.php', "\ndefine('IMAP_SMTP_REQUIRE_TLS', true);\n", FILE_APPEND);
 file_put_contents('autodiscover/config.php', "\ndefine('ZPUSH_HOST', 'zpush.kniff.at');\n", FILE_APPEND);
 config('backend/caldav/config.php', ['CALDAV_SERVER'=>'calendar.kniff.at', 'CALDAV_PATH'=>'/calendars/%u/', 'CALDAV_SUPPORTS_SYNC'=>true, 'CALDAV_PERSONAL'=>'personal', 'CALDAV_EXCLUDED_CALENDARS'=>[], 'CALDAV_SERVER_TIME_RANGE'=>true]);
 file_put_contents('backend/caldav/config.php', "\ndefine('CALDAV_SCHEDULING_BRIDGE', 'https://calendar.kniff.at/bridge/respond');\n", FILE_APPEND);

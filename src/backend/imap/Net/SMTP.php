@@ -637,6 +637,11 @@ class Net_SMTP
      */
     public function auth($uid, $pwd, $method = '', $tls = true, $authz = '')
     {
+        if (defined('IMAP_SMTP_REQUIRE_TLS') && IMAP_SMTP_REQUIRE_TLS &&
+            strncasecmp($this->host, 'ssl://', 6) !== 0 &&
+            (!$tls || !extension_loaded('openssl') || !isset($this->_esmtp['STARTTLS']))) {
+            return Net_SMTP::raiseError('SMTP requires TLS before authentication');
+        }
         /* We can only attempt a TLS connection if one has been requested,
          * we're running PHP 5.1.0 or later, have access to the OpenSSL
          * extension, are connected to an SMTP server which supports the
