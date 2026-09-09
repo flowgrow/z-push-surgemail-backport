@@ -443,31 +443,21 @@ class BackendCombined extends Backend implements ISearchProvider {
         ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendCombined->ChangesSink(%d)", $timeout));
 
         $notifications = array();
-        if ($this->numberChangesSink == 0) {
-            ZLog::Write(LOGLEVEL_DEBUG, "BackendCombined doesn't include any Sinkable backends");
-        } else {
-            $stopat = time() + $timeout - 1;
-
-            foreach ($this->backends as $i => $b) {
-                if ($this->backends[$i]->HasChangesSink()) {
-                    ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendCombined->ChangesSink - Calling in '%s'", get_class($b)));
-
-                    $notifications_backend = $this->backends[$i]->ChangesSink(1);
-                    // prepend backend delimiter
-                    for ($c = 0; $c < count($notifications_backend); $c++) {
-                        $notifications_backend[$c] = $i . $this->config['delimiter'] . $notifications_backend[$c];
-                    }
-                    $notifications = array_merge($notifications, $notifications_backend);
-                }
-            }
-
-            // If nothing changed, wait until timeout
-            if (empty($notifications)) {
-                while ($stopat > time()) {
-                    sleep(1);
-                }
-            }
+        $deadline = microtime(true) + max(0, $timeout);
+        // Reconcile DAV first, then let IMAP IDLE wait for the remaining interval.
+        foreach ($this->backends as $i => $backend) {
+            if ($backend instanceof BackendIMAP || !$backend->HasChangesSink()) continue;
+            foreach ($backend->ChangesSink(0) as $folder)
+                $notifications[] = $i . $this->config['delimiter'] . $folder;
         }
+        foreach ($this->backends as $i => $backend) {
+            if (!($backend instanceof BackendIMAP)) continue;
+            foreach ($backend->ChangesSink($notifications ? 0 : max(0, $deadline - microtime(true))) as $folder)
+                $notifications[] = $i . $this->config['delimiter'] . $folder;
+            return $notifications;
+        }
+        if (!$notifications && $deadline > microtime(true))
+            usleep((int)(($deadline - microtime(true)) * 1000000));
 
         return $notifications;
     }

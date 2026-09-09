@@ -39,7 +39,7 @@ define('IMAP_OPTIONS', '/notls/norsh');
 // Enable a lightweight raw-IMAP overview path (UID/FLAGS/INTERNALDATE/RFC822.SIZE only),
 // which can be faster on large folders than imap_fetch_overview().
 if (!defined('IMAP_USE_RAWIMAP_OVERVIEW')) {
-    define('IMAP_USE_RAWIMAP_OVERVIEW', true);
+    define('IMAP_USE_RAWIMAP_OVERVIEW', false);
 }
 
 // Optional message size guard rail in MB. Messages larger than this are skipped by

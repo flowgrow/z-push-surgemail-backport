@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . "/../../include/davsecurity.php";
 /***********************************************
 * File      :   carddav.php
 * Project   :   Z-Push
@@ -84,6 +85,12 @@ class BackendCardDAV extends BackendDiff implements ISearchProvider {
         }
         else {
             $this->gal_url = false;
+        }
+        if (CARDDAV_SERVER === 'purelymail.com') {
+            // Sync the personal book, excluding auto-collected correspondents.
+            $home = ZPushDavSecurity::discover($this->url, $username, $password);
+            $this->url = rtrim($home, '/') . '/default/';
+            $this->default_url = $this->url;
         }
         $this->server = new carddav_backend($this->url, CARDDAV_URL_VCARD_EXTENSION);
         $this->server->set_auth($username, $password);

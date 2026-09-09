@@ -17,6 +17,7 @@ function rawimap_get_error() {
 }
 
 function rawimap_quote($value) {
+    if (preg_match('/[\x00\r\n]/', (string)$value)) throw new RuntimeException("Invalid IMAP string");
     return '"' . str_replace(array("\\", '"'), array("\\\\", '\\"'), (string) $value) . '"';
 }
 
@@ -107,7 +108,9 @@ function rawimap_open_connection($server, $port, $timeout = 30) {
 
     $errno = 0;
     $errstr = "";
-    $stream = @stream_socket_client(sprintf("tcp://%s:%d", $server, $port), $errno, $errstr, (int) $timeout);
+    if (!preg_match('/^[a-zA-Z0-9.-]+$/D', $server)) return false;
+    $context = stream_context_create(['ssl'=>['verify_peer'=>true, 'verify_peer_name'=>true, 'peer_name'=>$server, 'allow_self_signed'=>false]]);
+    $stream = @stream_socket_client(sprintf("tls://%s:%d", $server, $port), $errno, $errstr, (int) $timeout, STREAM_CLIENT_CONNECT, $context);
     if ($stream === false) {
         rawimap_set_error(sprintf("Unable to connect to IMAP server: %s (%d)", $errstr, $errno));
         return false;

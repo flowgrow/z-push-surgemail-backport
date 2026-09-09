@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . "/davsecurity.php";
 
 /**
  * CardDAV PHP
@@ -119,6 +120,7 @@ class carddav_backend
      * @var	string
      */
     private $url = null;
+    private $allowedOrigin = null;
 
     /**
      * CardDAV server url_parts
@@ -236,7 +238,8 @@ class carddav_backend
      * @return	void
      */
     public function set_url($url) {
-        $this->url = $url;
+        if ($this->allowedOrigin === null) $this->allowedOrigin = $url;
+        $this->url = ZPushDavSecurity::url($url, $this->allowedOrigin);
 
         // Url always end with trailing /
         if (substr($this->url, -1, 1) !== '/') {
@@ -244,6 +247,7 @@ class carddav_backend
         }
 
         $this->url_parts = parse_url($this->url);
+        $this->url_parts['port'] = $this->url_parts['port'] ?? 443;
     }
 
     /**
@@ -484,7 +488,7 @@ EOFXMLINITIALSYNC;
      */
     private function get_vcard($vcard_href) {
 //         ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendCardDAV->carddav_backend->get_vcard"));
-        $url = $this->url_parts['scheme'] . '://' . $this->url_parts['host'] . ':' . $this->url_parts['port'] . $vcard_href;
+        $url = ZPushDavSecurity::url((string)$vcard_href, $this->allowedOrigin);
         $result = $this->query($url, 'GET');
 
         switch ($result['http_code']) {
@@ -543,7 +547,7 @@ EOFXMLGETXMLVCARD;
      */
     public function check_connection() {
 //         ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendCardDAV->carddav_backend->check_connection"));
-        $result = $this->query($this->url, 'OPTIONS');
+        $result = $this->query($this->url, 'PROPFIND', '<d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>', 'application/xml', '0');
 
         $status = false;
         switch($result['http_code']) {
@@ -700,7 +704,7 @@ EOFXMLGETXMLVCARD;
                             $href = null;
                         }
 
-                        $url = str_replace($this->url_parts['path'], null, $this->url) . $href;
+                        $url = ZPushDavSecurity::url((string)$href, $this->allowedOrigin);
                         $simplified_xml->startElement('addressbook_element');
                         $simplified_xml->writeElement('display_name', $response->propstat->prop->displayname);
                         $simplified_xml->writeElement('url', $url);
@@ -777,8 +781,8 @@ EOFXSL;
         if ($this->curl === false) {
             $this->curl = curl_init();
             curl_setopt($this->curl, CURLOPT_HEADER, true);
-            curl_setopt($this->curl, CURLOPT_SSL_VERIFYHOST, false);
-            curl_setopt($this->curl, CURLOPT_SSL_VERIFYPEER, false);
+            ZPushDavSecurity::curl($this->curl);
+
             curl_setopt($this->curl, CURLOPT_RETURNTRANSFER, true);
             curl_setopt($this->curl, CURLOPT_USERAGENT, self::USERAGENT.self::VERSION);
 
@@ -804,7 +808,7 @@ EOFXSL;
 
         $this->curl_init();
 
-        curl_setopt($this->curl, CURLOPT_URL, $url);
+        curl_setopt($this->curl, CURLOPT_URL, ZPushDavSecurity::url($url, $this->allowedOrigin));
         curl_setopt($this->curl, CURLOPT_CUSTOMREQUEST, $method);
 
         if ($content !== null) {

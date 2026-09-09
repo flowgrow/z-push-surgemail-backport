@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . "/davsecurity.php";
 /**
 * A Class for connecting to a caldav server
 *
@@ -118,7 +119,7 @@ class CalDAVClient {
 			return;
 		}
 
-		$this->server = $parsed_url['scheme'] . '://' . $parsed_url['host'] . ':' . $parsed_url['port'];
+		$this->server = $parsed_url['scheme'] . '://' . $parsed_url['host'] . ':' . ($parsed_url['port'] ?? 443);
 		$this->base_url  = $parsed_url['path'];
 		ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendCalDAV->caldav_backend(): base_url '%s'", $this->base_url));
 
@@ -137,12 +138,11 @@ class CalDAVClient {
 	 * @return  boolean
 	 */
 	public function CheckConnection() {
-		$result = $this->DoRequest($this->url, 'OPTIONS');
+		$result = $this->DoPROPFINDRequest($this->url, ['resourcetype'], 0);
 
 		switch ($this->httpResponseCode) {
 			case 200:
 			case 207:
-			case 401:
 				$status = true;
 				break;
 			default:
@@ -201,6 +201,7 @@ class CalDAVClient {
 	 * @param string Response from server
 	 */
 	function ParseResponse( $response ) {
+        $this->xmlnodes = $this->xmltags = array();
 		$pos = strpos($response, '<?xml');
 		if ($pos !== false) {
 			$this->xmlResponse = trim(substr($response, $pos));
@@ -226,8 +227,8 @@ class CalDAVClient {
 		if ($this->curl === false) {
 			$this->curl = curl_init();
 			curl_setopt($this->curl, CURLOPT_HEADER, true);
-			curl_setopt($this->curl, CURLOPT_SSL_VERIFYHOST, false);
-			curl_setopt($this->curl, CURLOPT_SSL_VERIFYPEER, false);
+			ZPushDavSecurity::curl($this->curl);
+
 			curl_setopt($this->curl, CURLOPT_RETURNTRANSFER, true);
 			curl_setopt($this->curl, CURLOPT_USERAGENT, self::USERAGENT);
 
@@ -250,8 +251,7 @@ class CalDAVClient {
 		$this->curl_init();
 
 		if ( !isset($url) ) $url = $this->base_url;
-		$url = preg_replace('{^https?://[^/]+}', '', $url);
-		$url = $this->server . $url;
+		$url = ZPushDavSecurity::url($url, $this->server);
 
 		curl_setopt($this->curl, CURLOPT_URL, $url);
 		curl_setopt($this->curl, CURLOPT_CUSTOMREQUEST, $method);
@@ -737,11 +737,14 @@ $hrefs
 EOXML;
 
 		$this->DoRequest($this->calendar_url, "REPORT", $body, "text/xml");
+        if ($this->httpResponseCode != 207 || !isset($this->xmltags["DAV::multistatus"]))
+            throw new RuntimeException("CalDAV query failed; refusing to treat it as an empty calendar");
 
 		$events = array();
 		if ( isset($this->xmltags['urn:ietf:params:xml:ns:caldav:calendar-data']) ) {
 			foreach( $this->xmltags['urn:ietf:params:xml:ns:caldav:calendar-data'] AS $k => $v ) {
 				$href = $this->HrefForProp('urn:ietf:params:xml:ns:caldav:calendar-data', $k);
+                $href = parse_url(ZPushDavSecurity::url($href, $this->server), PHP_URL_PATH);
 //				echo "Calendar-data:\n"; print_r($this->xmlnodes[$v]);
 				$events[$href] = $this->xmlnodes[$v]['value'];
 			}
@@ -796,6 +799,8 @@ EOXML;
 
         $this->SetDepth(1);
 		$this->DoRequest($this->calendar_url, "REPORT", $body, "text/xml");
+        if ($this->httpResponseCode != 207 || !isset($this->xmltags["DAV::multistatus"]))
+            throw new RuntimeException("CalDAV query failed; refusing to treat it as an empty calendar");
 
 		$report = array();
 		foreach( $this->xmlnodes as $k => $v ) {
@@ -1022,6 +1027,8 @@ EOXML;
 
 		$this->SetDepth(1);
 		$this->DoRequest($this->calendar_url, "REPORT", $body, "text/xml");
+        if ($this->httpResponseCode != 207 || !isset($this->xmltags["DAV::multistatus"]))
+            throw new RuntimeException("CalDAV query failed; refusing to treat it as an empty calendar");
 
 		$report = array();
 		foreach ($this->xmlnodes as $k => $v) {

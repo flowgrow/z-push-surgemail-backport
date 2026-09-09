@@ -54,3 +54,6 @@ define('CALDAV_SUPPORTS_SYNC', false);
 // Maximum period to sync.
 // Some servers don't support more than 10 years so you will need to change this
 define('CALDAV_MAX_SYNC_PERIOD', 2147483647);
+
+// Disable only for providers whose calendar-query time-range filter is broken.
+define('CALDAV_SERVER_TIME_RANGE', true);

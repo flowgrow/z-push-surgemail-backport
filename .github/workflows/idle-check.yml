@@ -6,3 +6,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: docker build -t z-push-idle:test .
+      - name: Scan runtime packages
+        run: >-
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
+          aquasec/trivy@sha256:62b1e65e8869bc4b4c6aa4fa2b21595256c7c2f6018a9d9ad61caf87187c1969
+          image --scanners vuln --severity HIGH,CRITICAL --exit-code 1 z-push-idle:test

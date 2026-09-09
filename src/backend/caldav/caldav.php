@@ -1,4 +1,5 @@
 <?php
+require_once __DIR__ . "/../../include/davsecurity.php";
 /***********************************************
 * File      :   caldav.php
 * Project   :   PHP-Push
@@ -60,7 +61,12 @@ class BackendCalDAV extends BackendDiff {
     public function Logon($username, $domain, $password) {
         $this->_caldav_path = str_replace('%u', $username, str_replace('%l', Utils::GetLocalPartFromEmail($username), CALDAV_PATH));
         $url = sprintf("%s://%s:%d%s", CALDAV_PROTOCOL, CALDAV_SERVER, CALDAV_PORT, $this->_caldav_path);
+        if (CALDAV_SERVER === 'purelymail.com') {
+            $url = ZPushDavSecurity::discover($url, $username, $password);
+            $this->_caldav_path = parse_url($url, PHP_URL_PATH);
+        }
         $this->_caldav = new CalDAVClient($url, $username, $password);
+        if (CALDAV_SERVER === 'purelymail.com') $this->_caldav->CalendarHomeSet($url);
         if ($connected = $this->_caldav->CheckConnection()) {
             ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendCalDAV->Logon(): User '%s' is authenticated on CalDAV '%s'", $username, $url));
         }
@@ -212,6 +218,8 @@ class BackendCalDAV extends BackendDiff {
 
         $path = $this->_caldav_path . substr($folderid, 1) . "/";
         if ($folderid[0] == "C") {
+            // Purelymail currently returns no matches for valid time-range queries.
+            if (defined('CALDAV_SERVER_TIME_RANGE') && !CALDAV_SERVER_TIME_RANGE) $begin = $finish = null;
             $msgs = $this->_caldav->GetEventsList($begin, $finish, $path);
         }
         else {
