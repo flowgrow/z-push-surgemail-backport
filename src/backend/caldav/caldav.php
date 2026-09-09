@@ -28,6 +28,7 @@ require_once __DIR__ . "/../../include/davsecurity.php";
 
 // config file
 require_once("backend/caldav/config.php");
+require_once("include/calendarbridge.php");
 
 class BackendCalDAV extends BackendDiff {
     /**
@@ -242,6 +243,13 @@ class BackendCalDAV extends BackendDiff {
      * Get a SyncObject by its ID
      * @see BackendDiff::GetMessage()
      */
+    public function MeetingResponse($requestid, $folderid, $response) {
+        if (!ZPushCalendarBridge::enabled()) return parent::MeetingResponse($requestid, $folderid, $response);
+        if ($folderid !== 'Cpersonal') throw new RuntimeException('Unsupported meeting calendar');
+        $result = ZPushCalendarBridge::request(['object'=>$requestid,'status'=>ZPushCalendarBridge::response($response)]);
+        return $result['id'];
+    }
+
     public function GetMessage($folderid, $id, $contentparameters) {
         ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendCalDAV->GetMessage('%s','%s')", $folderid,  $id));
         $path = $this->_caldav_path . substr($folderid, 1) . "/";

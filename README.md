@@ -18,3 +18,9 @@ The goal is to keep the local delta as small as possible: let upstream own anyth
 
 # Contributing
 Please see the [CONTRIBUTING](CONTRIBUTING.md) file for contribution information.
+
+### Kniff calendar scheduling deployment
+
+The Kniff Docker configuration uses `calendar.kniff.at` (SabreDAV) for calendars, while IMAP, SMTP, CardDAV contacts and Sieve automatic replies remain on Purelymail. Mac clients connect directly to CalDAV; ActiveSync clients keep their existing Exchange account.
+
+`CALDAV_SCHEDULING_BRIDGE` enables the authenticated calendar reply endpoint on the same verified HTTPS origin as CalDAV. Both email and calendar MeetingResponse calls update the same event. Subsequent client iTIP REPLY submissions go through that endpoint so unchanged attendee responses do not send duplicate mail. The original invitation email is retained. Replies to individual recurring instances are rejected instead of accidentally responding to the whole series. Server-side scheduling queues RSVPs; bridged client reply copies are not currently added to Sent Items.

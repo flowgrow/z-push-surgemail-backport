@@ -30,6 +30,7 @@ require_once("backend/imap/config.php");
 require_once("backend/imap/idle.php");
 
 require_once("backend/imap/mime_calendar.php");
+require_once("include/calendarbridge.php");
 require_once("backend/imap/mime_encode.php");
 require_once("backend/imap/rawimap.php");
 require_once("backend/imap/user_identity.php");
@@ -171,6 +172,14 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
      * @throws StatusException
      */
     public function SendMail($sm) {
+        if (ZPushCalendarBridge::enabled()) {
+            $decoder = new Mail_mimeDecode($sm->mime);
+            $part = $decoder->decode(['decode_bodies'=>true, 'include_bodies'=>true]);
+            if (ZPushCalendarBridge::hasReply($part)) {
+                $result = ZPushCalendarBridge::request(['action'=>'client-reply','mime'=>$sm->mime]);
+                if (!empty($result['handled'])) return true;
+            }
+        }
         ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendIMAP->SendMail(): RFC822: %d bytes  forward-id: '%s' reply-id: '%s' parent-id: '%s' SaveInSent: '%s' ReplaceMIME: '%s'",
                                             strlen($sm->mime),
                                             Utils::PrintAsString($sm->forwardflag ? (isset($sm->source->itemid) ? $sm->source->itemid : "error no itemid") : false),
@@ -1919,6 +1928,12 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
 
         if (empty($mail)) {
             throw new StatusException("BackendIMAP->MeetingResponse(): Error, message not found, maybe was moved", SYNC_ITEMOPERATIONSSTATUS_INVALIDATT);
+        }
+
+        if (ZPushCalendarBridge::enabled()) {
+            $result = ZPushCalendarBridge::request(['mime'=>$mail, 'status'=>ZPushCalendarBridge::response($response)]);
+            // Keep the original invitation. Do not expunge unrelated deleted mail.
+            return $result['id'];
         }
 
         // Get the original calendar request, so we don't need to create it from scratch

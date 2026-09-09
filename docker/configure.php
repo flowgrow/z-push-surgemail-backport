@@ -20,7 +20,8 @@ config('backend/imap/config.php', ['IMAP_SERVER'=>'mailserver.purelymail.com', '
     'IMAP_SMTP_METHOD'=>'smtp', 'IMAP_SIEVE_ENABLED'=>true, 'IMAP_SIEVE_PRE_TLS_CAPABILITIES'=>true]);
 file_put_contents('backend/imap/config.php', "\n\$imap_smtp_params = ['host'=>'ssl://mailserver.purelymail.com','port'=>465,'auth'=>true,'username'=>'imap_username','password'=>'imap_password'];\n", FILE_APPEND);
 file_put_contents('autodiscover/config.php', "\ndefine('ZPUSH_HOST', 'zpush.kniff.at');\n", FILE_APPEND);
-config('backend/caldav/config.php', ['CALDAV_SERVER'=>'purelymail.com', 'CALDAV_PATH'=>'/.well-known/caldav', 'CALDAV_SUPPORTS_SYNC'=>false, 'CALDAV_PERSONAL'=>'2068226B-30F7-4618-A7FD-045AD11A26FD', 'CALDAV_EXCLUDED_CALENDARS'=>['default'], 'CALDAV_SERVER_TIME_RANGE'=>false]);
+config('backend/caldav/config.php', ['CALDAV_SERVER'=>'calendar.kniff.at', 'CALDAV_PATH'=>'/calendars/%u/', 'CALDAV_SUPPORTS_SYNC'=>true, 'CALDAV_PERSONAL'=>'personal', 'CALDAV_EXCLUDED_CALENDARS'=>[], 'CALDAV_SERVER_TIME_RANGE'=>true]);
+file_put_contents('backend/caldav/config.php', "\ndefine('CALDAV_SCHEDULING_BRIDGE', 'https://calendar.kniff.at/bridge/respond');\n", FILE_APPEND);
 config('backend/carddav/config.php', ['CARDDAV_SERVER'=>'purelymail.com', 'CARDDAV_PATH'=>'/.well-known/carddav',
     'CARDDAV_DEFAULT_PATH'=>'/.well-known/carddav', 'CARDDAV_SUPPORTS_SYNC'=>false]);
 $text=file_get_contents('backend/carddav/config.php');
